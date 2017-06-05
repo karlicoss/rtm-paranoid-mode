@@ -3,14 +3,15 @@ from config import IGNORED
 
 from itertools import groupby
 import logging
+from sys import argv
 
 import icalendar
 
 def main():
-    # TODO get last
+    path = argv[1]
+
     data = None
-    # TODO get ical which was latest?
-    with open('rtm_2017-06-05.ical', 'rb') as fo:
+    with open(path, 'rb') as fo:
         data = fo.read()
     cal = icalendar.Calendar.from_ical(data)
 
@@ -20,23 +21,38 @@ def main():
         group = list(g)
         groups[k] = group
 
-    for k, g in sorted(groups.items(), key=lambda p: len(p[1])):
-        statuses = []
-        for c in g:
-            status = "???" if ('STATUS' not in c) else str(c['STATUS'])
-            statuses.append(status)
-
+    susp = []
+    for k, g in sorted(groups.items()):
         if k in IGNORED:
-            # TODO log
             logging.info(k + " is ignored, skipping...")
             continue
-    
-        if len(statuses) <= 1: # probably not repeating
+
+        if len(g) <= 1: # probably not repeating
             continue
-    
-        if all([s == 'COMPLETED' for s in statuses]):
-            print(k, statuses)
+
+        suspicious = 0
+        for c in g:
+            # TODO how to skip subtasks?
+            if 'STATUS' in c and str(c['STATUS']) == 'COMPLETED':
+                suspicious += 1
+            elif 'DUE' not in c:
+                suspicious += 1
+
+        if len(g) == suspicious:
+            susp.append('"{}",'.format(k))
+            logging.error(k)
+
+    print("Suspicious (for quick add):")
+    for s in susp:
+        print(s)
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    try:
+        import coloredlogs
+        coloredlogs.install(fmt="%(asctime)s [%(name)s] %(levelname)s %(message)s")
+        coloredlogs.set_level(logging.INFO)
+    except ImportError:
+        logging.info("Install coloredlogs for fancy colored logs!")
     logging.basicConfig(level=logging.DEBUG)
     main()
