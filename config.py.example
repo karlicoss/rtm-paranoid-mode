@@ -1,0 +1,4 @@
+# populate this set with names of repeating tasks that are actually complete
+IGNORED = {
+    "example_of_ignored_description",
+}
