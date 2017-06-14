@@ -1,4 +1,6 @@
 # populate this set with names of repeating tasks that are actually complete
+BACKUPS_PATH = "/path/to/folder/with/ical_backups"
+
 IGNORED = {
     "example_of_ignored_description",
 }
