@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from sys import argv
-from typing import List, Dict, Iterable, TypeVar, Callable # TODO move to dima python module
+from typing import List, Set, Dict, Iterable, TypeVar, Callable # TODO move to dima python module
 from dateutil.parser import parse as parse_date # TODO move to dima python module
 
 import icalendar
@@ -41,7 +41,7 @@ class MyTodo:
         [tags_str] = re.findall(r'\nTags:(.*?)\n', desc, flags=re.DOTALL)
         self.tags = [t.strip() for t in tags_str.split(',')] # TODO handle none?
 
-    def get_notes(self):
+    def get_notes(self) -> List[str]:
         if self.notes is None:
             self._init_notes()
         return self.notes
@@ -103,14 +103,8 @@ class RtmBackup:
 
     def get_todos_by_title(self) -> Dict[str, List[MyTodo]]:
         todos = self.get_all_todos()
-        res = {} # type: Dict[str, List[MyTodo]]
-        for todo in todos:
-            kk = todo.get_title()
-            l = res.get(kk, [])
-            l.append(todo)
-            res[kk] = l
-        # TODO sort individual lists by dure date?
-        return res
+        return group_by_key(todos, lambda todo: todo.get_title())
+
 
 def check_wiped_notes(backups: List[str]):
     def filter_same_alala(todos: List[MyTodo]) -> List[MyTodo]:
@@ -165,6 +159,9 @@ def check_wiped_notes(backups: List[str]):
                 return True
         return False
 
+    def has_safe_tag(todos: List[MyTodo]) -> bool:
+        all_tags = set.union(*(set(todo.get_tags) for todo in todos))
+        return 'z_dn_safe' in all_tags
 
     def boring(todos: List[MyTodo]) -> bool:
         if len(todos) <= 1:
@@ -197,16 +194,27 @@ def check_wiped_notes(backups: List[str]):
                 logging.error("{} {} {}".format(todo.get_title(), todo.get_uid(), todo.get_notes()))
 
 
+def are_suspicious(l: List[MyTodo]) -> bool:
+    if len(l) <= 1: # probably not repeating
+        return False
+
+    all_tags = set.union(*(set(todo.get_tags()) for todo in l))
+    if 'z_ac_safe' in all_tags:
+        return False
+
+    suspicious = 0
+    for c in l:
+        if c.is_completed():
+            suspicious += 1
+        elif 'DUE' not in c.todo:
+            suspicious += 1
+
+    return len(l) == suspicious
+
 def check_accidentally_completed(path: str):
     backup = RtmBackup.from_path(path)
-    cal = backup.cal
-    # TODO move more stuff in RtmBackup
 
-    key = lambda c: str(c['SUMMARY'])
-    groups = {}
-    for k, g in groupby(sorted(cal.walk('VTODO'), key=key), key=key):
-        group = list(g)
-        groups[k] = group
+    groups = backup.get_todos_by_title()
 
     susp = []
     for k, g in sorted(groups.items()):
@@ -214,24 +222,17 @@ def check_accidentally_completed(path: str):
             logging.info(k + " is ignored, skipping...")
             continue
 
-        if len(g) <= 1: # probably not repeating
-            continue
-
-        suspicious = 0
-        for c in g:
-            # TODO how to skip subtasks?
-            if 'STATUS' in c and str(c['STATUS']) == 'COMPLETED':
-                suspicious += 1
-            elif 'DUE' not in c:
-                suspicious += 1
-
-        if len(g) == suspicious:
+        if are_suspicious(g):
             susp.append('"{}",'.format(k))
             logging.error(k)
 
-    print("Suspicious (for quick add):")
-    for s in susp:
-        print(s)
+    if len(susp) > 0:
+        print("Suspicious:")
+        for s in susp:
+            print(s)
+    else:
+        print("Nothing suspicious!")
+
 
 def main():
     def extract_date(s: str):
@@ -245,7 +246,7 @@ def main():
     check_accidentally_completed(last_backup)
     logging.info("Using " + last_backup + " for checking for accidentally completed notes")
 
-    backups = backups[:-1:10] + [backups[-1]] # always include last # TODO FIXME USE ALL?
+    backups = backups[:-1:5] + [backups[-1]] # always include last # TODO FIXME USE ALL?
     logging.info("Using {} for checking for wiped notes".format(backups))
 
     check_wiped_notes(backups)
