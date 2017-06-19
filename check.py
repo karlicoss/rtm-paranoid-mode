@@ -1,31 +1,17 @@
 #!/usr/bin/env python3
 from config import IGNORED, BACKUPS_PATH
 
-from itertools import groupby
 import logging
 import os
 import re
 from sys import argv
-from typing import List, Set, Dict, Iterable, TypeVar, Callable # TODO move to dima python module
-from dateutil.parser import parse as parse_date # TODO move to dima python module
 
-import icalendar
-from icalendar.cal import Todo
+from kython import *
 
+import icalendar # type: ignore
+from icalendar.cal import Todo # type: ignore
 
-T = TypeVar('T')
-K = TypeVar('K')
-
-def group_by_key(l: Iterable[T], key: Callable[[T], K]) -> Dict[K, List[T]]: # TODO module dima
-    res = {} # type: Dict[K, List[T]]
-    for i in l:
-        kk = key(i)
-        lst = res.get(kk, [])
-        lst.append(i)
-        res[kk] = lst
-    return res
-
-
+# TODO extract in a module to parse RTM's ical?
 class MyTodo:
     def __init__(self, todo: Todo) -> None:
         self.todo = todo
@@ -253,12 +239,5 @@ def main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    try:
-        import coloredlogs
-        coloredlogs.install(fmt="%(asctime)s [%(name)s] %(levelname)s %(message)s")
-        coloredlogs.set_level(logging.INFO)
-    except ImportError:
-        logging.info("Install coloredlogs for fancy colored logs!")
-    logging.basicConfig(level=logging.DEBUG)
+    setup_logging()
     main()
