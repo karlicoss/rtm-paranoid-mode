@@ -11,12 +11,20 @@ from kython import *
 import icalendar # type: ignore
 from icalendar.cal import Todo # type: ignore
 
+
+def extract_backup_date(s: str):
+    s = s[len(BACKUPS_PATH + "/rtm_"):-4]
+    s = s.replace('_', '-')
+    return parse_date(s)
+
+
 # TODO extract in a module to parse RTM's ical?
 class MyTodo:
-    def __init__(self, todo: Todo) -> None:
+    def __init__(self, todo: Todo, revision=None) -> None:
         self.todo = todo
         self.notes = None
         self.tags = None
+        self.revision = revision
 
     def _init_notes(self):
         desc = self.todo['DESCRIPTION']
@@ -65,21 +73,23 @@ class MyTodo:
 
     @staticmethod
     def alala_key(mtodo):
-        return (mtodo.is_completed(), mtodo.get_time())
+        return (mtodo.revision, mtodo.get_time())
 
 
 class RtmBackup:
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, revision=None) -> None:
         self.cal = icalendar.Calendar.from_ical(data)
+        self.revision = revision
 
     @staticmethod
     def from_path(path: str) -> 'RtmBackup':
         with open(path, 'rb') as fo:
             data = fo.read()
-            return RtmBackup(data)
+            revision = extract_backup_date(path)
+            return RtmBackup(data, revision)
 
     def get_all_todos(self) -> List[MyTodo]:
-        return [MyTodo(t) for t in self.cal.walk('VTODO')]
+        return [MyTodo(t, self.revision) for t in self.cal.walk('VTODO')]
 
     def get_todos_by_uid(self) -> Dict[str, MyTodo]:
         todos = self.get_all_todos()
@@ -90,6 +100,31 @@ class RtmBackup:
     def get_todos_by_title(self) -> Dict[str, List[MyTodo]]:
         todos = self.get_all_todos()
         return group_by_key(todos, lambda todo: todo.get_title())
+
+
+# TODO move to kython?
+def group_by_any(items: List[T], key1, key2):
+    kk1 = group_by_key(items, key1)
+    kk2 = group_by_key(items, key2)
+
+    used = set()
+    def dfs(i, res):
+        used.add(i)
+        res.append(i)
+        for ni in kk1[key1(i)]:
+            if ni not in used:
+                dfs(ni, res)
+        for ni in kk2[key2(i)]:
+            if ni not in used:
+                dfs(ni, res)
+
+    groups = []
+    for i in items:
+        if i not in used:
+            res = [] # type: List[T]
+            dfs(i, res)
+            groups.append(res)
+    return groups
 
 
 def check_wiped_notes(backups: List[str]):
@@ -107,36 +142,12 @@ def check_wiped_notes(backups: List[str]):
         all_todos.extend(backup.get_all_todos())
 
     # first, let tasks with same titles or uids be in the same class. (if we rename a task, it retains UID)
-    cur_key = 0
-    uid_key = {}
-    title_key = {}
-    kk_map = {} # type: Dict[int, List[MyTodo]]
-    for todo in all_todos:
-        uid = todo.get_uid()
-        title = todo.get_title()
-        kk = None
-        if uid in uid_key:
-            kk = uid_key.get(uid)
-        elif title in title_key:
-            kk = title_key.get(title)
-        else:
-            kk = cur_key
-            cur_key += 1
-            uid_key[uid] = kk
-            title_key[title] = kk
-        # ok, kk is set
-        ll = kk_map.get(kk, [])
-        ll.append(todo)
-        kk_map[kk] = ll
+    groups = group_by_any(all_todos, lambda k: k.get_title(), lambda k: k.get_uid())
+    kk_map = {i: g for i, g in enumerate(groups)} # type: Dict[int, List[MyTodo]]
 
-    kk2_map = {}
-    for kk, todos in sorted(kk_map.items()):
-        # within each group, notes that have same number of notes, are equivalent
-        todos = filter_same_alala(todos)
-        todos = [t for t in todos if not t.is_completed()] # TODO FIXME THIS IS ONLY TEMPORARY?
-        kk2_map[kk] = todos
-
-    kk_map = kk2_map
+    def has_safe_tag(todos: List[MyTodo]) -> bool:
+        all_tags = set.union(*(set(todo.get_tags()) for todo in todos))
+        return 'z_dn_safe' in all_tags
 
     def has_safe_note(todo: MyTodo) -> bool:
         notes = todo.get_notes()
@@ -145,9 +156,7 @@ def check_wiped_notes(backups: List[str]):
                 return True
         return False
 
-    def has_safe_tag(todos: List[MyTodo]) -> bool:
-        all_tags = set.union(*(set(todo.get_tags) for todo in todos))
-        return 'z_dn_safe' in all_tags
+    kk_map = {kk: todos for kk, todos in kk_map.items() if not has_safe_tag(todos)}
 
     def boring(todos: List[MyTodo]) -> bool:
         if len(todos) <= 1:
@@ -177,7 +186,7 @@ def check_wiped_notes(backups: List[str]):
         todos = sorted(todos, key = MyTodo.alala_key)
         if not boring(todos):
             for todo in todos:
-                logging.error("{} {} {}".format(todo.get_title(), todo.get_uid(), todo.get_notes()))
+                logging.error("{} {} {} {}".format(todo.revision, todo.get_title(), todo.get_uid(), todo.get_notes()))
 
 
 def are_suspicious(l: List[MyTodo]) -> bool:
@@ -221,16 +230,11 @@ def check_accidentally_completed(path: str):
 
 
 def main():
-    def extract_date(s: str):
-        s = s[len(BACKUPS_PATH + "/rtm_"):-4]
-        s = s.replace('_', '-')
-        return parse_date(s)
-
-    backups = sorted([os.path.join(BACKUPS_PATH, p) for p in os.listdir(BACKUPS_PATH) if p.endswith('ical')], key=extract_date)
+    backups = sorted([os.path.join(BACKUPS_PATH, p) for p in os.listdir(BACKUPS_PATH) if p.endswith('ical')], key=extract_backup_date)
     last_backup = backups[-1]
 
     check_accidentally_completed(last_backup)
-    logging.info("Using " + last_backup + " for checking for accidentally completed notes")
+    ogging.info("Using " + last_backup + " for checking for accidentally completed notes")
 
     backups = backups[:-1:5] + [backups[-1]] # always include last # TODO FIXME USE ALL?
     logging.info("Using {} for checking for wiped notes".format(backups))
