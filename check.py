@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.6
 from config import IGNORED, BACKUPS_PATH
 
+from collections import deque
 import logging
 import os
 import re
@@ -107,35 +108,32 @@ def group_by_any(items: List[T], key1, key2):
     kk1 = group_by_key(items, key1)
     kk2 = group_by_key(items, key2)
 
-    used = set()
-    def dfs(i, res):
-        used.add(i)
-        res.append(i)
-        for ni in kk1[key1(i)]:
-            if ni not in used:
-                dfs(ni, res)
-        for ni in kk2[key2(i)]:
-            if ni not in used:
-                dfs(ni, res)
+    used: Set[T] = set()
+    def bfs(i):
+        queue = deque()
+        res = []
+        def register(i):
+            if i not in used:
+                res.append(i)
+                used.add(i)
+                queue.append(i)
+        register(i)
+        while len(queue) > 0:
+            top = queue.popleft()
+            for ni in kk1[key1(top)]:
+                register(ni)
+            for ni in kk2[key2(top)]:
+                register(ni)
+        return res
 
     groups = []
     for i in items:
         if i not in used:
-            res = [] # type: List[T]
-            dfs(i, res)
-            groups.append(res)
+            groups.append(bfs(i))
     return groups
 
 
 def check_wiped_notes(backups: List[str]):
-    def filter_same_alala(todos: List[MyTodo]) -> List[MyTodo]:
-        notes = [len(todo.get_notes()) for todo in todos]
-        # grouped = group_by_key(todos, lambda n: len(todo.get_notes()))
-        if len(notes) > 1:
-            if all(notes[0] == i for i in notes):
-                todos = [todos[0]]
-        return todos
-
     all_todos = []
     for b in backups:
         backup = RtmBackup.from_path(b)
@@ -186,7 +184,7 @@ def check_wiped_notes(backups: List[str]):
         todos = sorted(todos, key = MyTodo.alala_key)
         if not boring(todos):
             for todo in todos:
-                logging.error("{} {} {} {}".format(todo.revision, todo.get_title(), todo.get_uid(), todo.get_notes()))
+                logging.error(f"{todo.revision} {todo.get_title()} {todo.get_uid()} {todo.get_notes()}")
 
 
 def are_suspicious(l: List[MyTodo]) -> bool:
@@ -218,7 +216,7 @@ def check_accidentally_completed(path: str):
             continue
 
         if are_suspicious(g):
-            susp.append('"{}",'.format(k))
+            susp.append(f'"{k}",')
             logging.error(k)
 
     if len(susp) > 0:
@@ -234,10 +232,10 @@ def main():
     last_backup = backups[-1]
 
     check_accidentally_completed(last_backup)
-    ogging.info("Using " + last_backup + " for checking for accidentally completed notes")
+    logging.info("Using " + last_backup + " for checking for accidentally completed notes")
 
     backups = backups[:-1:5] + [backups[-1]] # always include last # TODO FIXME USE ALL?
-    logging.info("Using {} for checking for wiped notes".format(backups))
+    logging.info(f"Using {backups} for checking for wiped notes")
 
     check_wiped_notes(backups)
 
