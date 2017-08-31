@@ -16,7 +16,7 @@ from icalendar.cal import Todo # type: ignore
 def extract_backup_date(s: str):
     s = s[len(BACKUPS_PATH + "/rtm_"):-4]
     s = s.replace('_', '-')
-    return parse_date(s)
+    return parse_date(s, dayfirst=False)
 
 
 # TODO extract in a module to parse RTM's ical?
@@ -145,7 +145,7 @@ def check_wiped_notes(backups: List[str]):
 
     def has_safe_tag(todos: List[MyTodo]) -> bool:
         all_tags = set.union(*(set(todo.get_tags()) for todo in todos))
-        return 'z_dn_safe' in all_tags
+        return 'z_dn_safe' in all_tags or 'y_see_org' in all_tags
 
     def has_safe_note(todo: MyTodo) -> bool:
         notes = todo.get_notes()
@@ -234,7 +234,8 @@ def main():
     check_accidentally_completed(last_backup)
     logging.info("Using " + last_backup + " for checking for accidentally completed notes")
 
-    backups = backups[:-1:5] + [backups[-1]] # always include last # TODO FIXME USE ALL?
+    # backups = backups[:-5:5] + backups[:-5] # always include last 5 # TODO FIXME USE ALL?
+    backups = backups[:-5:5] + backups[-5: len(backups)] # always include last 5 # TODO FIXME USE ALL?
     logging.info(f"Using {backups} for checking for wiped notes")
 
     check_wiped_notes(backups)
