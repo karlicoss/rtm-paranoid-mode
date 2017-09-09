@@ -179,12 +179,19 @@ def check_wiped_notes(backups: List[str]):
 
         return False
 
+    bads = []
     for kk, todos in sorted(kk_map.items()):
         # TODO sorts by 1) competion 2) modified date
         todos = sorted(todos, key = MyTodo.alala_key)
         if not boring(todos):
             for todo in todos:
-                logging.error(f"{todo.revision} {todo.get_title()} {todo.get_uid()} {todo.get_notes()}")
+                bads.append(todo)
+
+
+    if len(bads) != 0:
+        logging.error('\n'.join(set(t.get_title() for t in bads)))
+        for t in bads:
+            logging.error(f"{t.revision} {t.get_title()} {t.get_uid()} {t.get_notes()}")
 
 
 def are_suspicious(l: List[MyTodo]) -> bool:
@@ -234,8 +241,7 @@ def main():
     check_accidentally_completed(last_backup)
     logging.info("Using " + last_backup + " for checking for accidentally completed notes")
 
-    # backups = backups[:-5:5] + backups[:-5] # always include last 5 # TODO FIXME USE ALL?
-    backups = backups[:-5:5] + backups[-5: len(backups)] # always include last 5 # TODO FIXME USE ALL?
+    backups = backups[:-5:5] + backups[-5:] # always include last 5 # TODO FIXME USE ALL?
     logging.info(f"Using {backups} for checking for wiped notes")
 
     check_wiped_notes(backups)
