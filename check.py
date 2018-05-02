@@ -1,5 +1,6 @@
 #!/usr/bin/env python3.6
 from config import IGNORED, BACKUPS_PATH
+from config import RTM_API_KEY, RTM_API_TOKEN, RTM_API_SECRET
 
 from collections import deque
 import logging
